@@ -1,14 +1,10 @@
 <?php
-
 require 'libraries/Slim/Slim.php';
 include_once('libraries/meekrodb.2.1.class.php');
 include_once('libraries/FirePHPCore/FirePHP.class.php');
 include_once('config/config.php');
-include_once('helpers/sec_session_start.php');
 include_once('helpers/echo_json.php');
 include_once('classes/class.LoginManager.php');
-
-sec_session_start();
 
 // For debugging
 $firephp = FirePHP::getInstance(true);
@@ -81,6 +77,8 @@ $app->delete('/categories/:id', function($id) {
     }
 });
 
+
+
 /**
  * Get comments
  * @param {int} catid
@@ -91,7 +89,7 @@ $app->get('/comments/:catid/:limit', function($catid, $limit) {
         if (is_numeric($limit)) {
             $arr = array();
             if ($catid == 1) {
-                $result = DB::query('SELECT * FROM Comments ORDER BY Categories_id DESC, id DESC');
+                $result = DB::query('SELECT * FROM Comments WHERE questionID = 0 ORDER BY Categories_id DESC, id DESC');
                 $arrCount = array();
                 foreach ($result as $row) {
                     if (!isset($arrCount[$row['Categories_id']])) {
@@ -115,17 +113,10 @@ $app->get('/comments/:catid/:limit', function($catid, $limit) {
             } else if ($catid == 2) { // monthly question
                 $result = DB::query('SELECT * FROM Questions ORDER BY id DESC LIMIT 1');
                 foreach ($result as $row) {
-                    $arr[] = array('id' => $row['id'],
-                        'categoryid' => $row['Categories_id'],
-                        //'type'=>$row['type'], 
-                        'status' => $row['status'],
-                        'timestamp' => $row['timestamp'],
-                        'thumbcountplus' => $row['thumbCountPlus'],
-                        'thumbcountminus' => $row['thumbCountMinus'],
-                        'text' => $row['text'],
-                        //'contactinfo'=>$row['contactInfo'], 
-                        //'contact'=>$row['contact'], 
-                        'checked' => $row['checked']);
+                    $arr[] = array(
+                        'id' => $row['id'],
+                        'status' => 3,
+                        'text' => $row['text']);
                 }
             } else {
                 if ($limit == 0) {
@@ -186,6 +177,7 @@ $app->delete('/comments/:id', function($id) {
     $l = new LoginManager();
 
     if ($l->loginCheck()) {
+        DB::delete('Thumbs', "Comments_id=%i", $id);
         DB::delete('Comments', "id=%i", $id);
 
         echoJSON(array('status' => 1));
@@ -245,6 +237,72 @@ $app->post('/comments/dislike/:id', function($id) {
         echoJSON(array('status' => 1));
     } else {
         echoJSON(array('status' => 0, 'msg' => 'Olet jo arvioinut tämän palautteen!'));
+    }
+});
+
+
+
+/**
+ * Get question
+ */
+$app->get('/question', function() {
+    $arr = array();
+    $result = DB::query('SELECT * FROM Questions ORDER BY id DESC LIMIT 1');
+    $arrCount = array();
+    foreach ($result as $row) {
+        $arr[] = array('text' => $row['text']);
+    }
+
+    echoJSON(array('status' => 1, 'question' => $arr));
+});
+
+/**
+ * Get question comments
+ * @param {int} question ID
+ */
+$app->get('/question/comments/:qid', function($qid) {
+    if ($qid != '') {
+        $arr = array();
+        $result = DB::query('SELECT text FROM Comments WHERE questionID = %i ORDER BY id DESC', $qid);
+        foreach ($result as $row) {
+            $arr[] = array('text' => $row['text']);
+        }
+
+        echoJSON(array('status' => 1, 'comments' => $arr));
+    } else {
+        echoJSON(array('status' => 0, 'msg' => 'Question ID missing'));
+    }
+});
+
+/**
+ * Add question
+ * @param {string} question
+ */
+$app->post('/question/:question', function($question) {
+    str_replace('?', '&63;', $question);
+    DB::insert('Questions', array(
+        'text' => $question
+    ));
+
+    echoJSON(array('status' => 1));
+});
+
+/**
+ * Add question comment
+ * @param {string} comment
+ */
+$app->post('/comments/question/:text', function($text) {
+    if($text != ''){
+        $question = DB::queryFirstRow('SELECT * FROM Questions ORDER BY id DESC LIMIT 1');
+        DB::insert('Comments', array(
+            'Categories_id' => 2,
+            'questionID' => $question['id'],
+            'text' => $text
+        ));
+
+        echoJSON(array('status' => 1));
+    }else{
+        echoJSON(array('status' => 0, 'errors' => array('Comment missing')));
     }
 });
 
@@ -340,9 +398,9 @@ $app->get('/staffdata(/:start(/:end))', function($start='', $end=''){
 
     if ($l->loginCheck()) {
         if($start == '' && $end == ''){
-            $arrStatsByTime = DB::query("SELECT co.id, co.Categories_id, ca.name, co.status, co.timestamp, co.thumbCountPlus, co.thumbCountMinus, co.checked FROM Comments AS co, Categories AS ca WHERE co.Categories_id = ca.id ORDER BY ca.id ASC, co.timestamp ASC");
+            $arrStatsByTime = DB::query("SELECT co.id, co.Categories_id, ca.name, co.status, co.timestamp, co.thumbCountPlus, co.thumbCountMinus, co.checked FROM Comments AS co, Categories AS ca WHERE co.Categories_id = ca.id AND ca.id != 2 ORDER BY ca.id ASC, co.timestamp ASC");
 	}else{
-            $arrStatsByTime = DB::query("SELECT co.id, co.Categories_id, ca.name, co.status, co.timestamp, co.thumbCountPlus, co.thumbCountMinus, co.checked FROM Comments AS co, Categories AS ca WHERE co.Categories_id = ca.id AND co.timestamp >= %i AND co.timestamp <= %i ORDER BY ca.id ASC, co.timestamp ASC", $start, $end);
+            $arrStatsByTime = DB::query("SELECT co.id, co.Categories_id, ca.name, co.status, co.timestamp, co.thumbCountPlus, co.thumbCountMinus, co.checked FROM Comments AS co, Categories AS ca WHERE co.Categories_id = ca.id AND ca.id != 2 AND co.timestamp >= %i AND co.timestamp <= %i ORDER BY ca.id ASC, co.timestamp ASC", $start, $end);
 	}
 
         $arrStatsByTime[] = array('end');
